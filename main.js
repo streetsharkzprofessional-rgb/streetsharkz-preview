@@ -282,8 +282,8 @@ function initHero() {
     for (i = 0; i < 4; i += 1) {
       var x = (width * (0.12 + i * 0.22)) + Math.sin(t + i) * 18;
       var grad = ctx.createLinearGradient(x, 0, x + 30, height * 0.72);
-      grad.addColorStop(0, 'rgba(232, 200, 90, 0.045)');
-      grad.addColorStop(1, 'rgba(232, 200, 90, 0)');
+      grad.addColorStop(0, 'rgba(217, 225, 233, 0.045)');
+      grad.addColorStop(1, 'rgba(217, 225, 233, 0)');
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -327,6 +327,39 @@ function initHero() {
   frame();
 }
 
+function showPlayControl(screen, video) {
+  if (!screen || !video || screen.classList.contains('is-fallback')) return;
+  var playBtn = screen.querySelector('.play-btn');
+  if (!playBtn) {
+    playBtn = el('button', 'play-btn', 'Play');
+    playBtn.type = 'button';
+    playBtn.setAttribute('aria-label', 'Play');
+    playBtn.addEventListener('click', function () {
+      if (screen.classList.contains('is-fallback')) return;
+      if (video.paused) {
+        var pending = video.play();
+        if (pending && pending.then) {
+          pending.then(function () {
+            playBtn.textContent = 'Pause';
+            playBtn.setAttribute('aria-label', 'Pause');
+          }).catch(function () {
+            playBtn.textContent = 'Play';
+            playBtn.setAttribute('aria-label', 'Play');
+          });
+        }
+      } else {
+        video.pause();
+        playBtn.textContent = 'Play';
+        playBtn.setAttribute('aria-label', 'Play');
+      }
+    });
+    screen.appendChild(playBtn);
+  }
+  playBtn.hidden = false;
+  playBtn.textContent = video.paused ? 'Play' : 'Pause';
+  playBtn.setAttribute('aria-label', playBtn.textContent);
+}
+
 function ensureScreenObserver() {
   if (screenObserver || !('IntersectionObserver' in window) || reduceMotion()) return;
   screenObserver = new IntersectionObserver(function (entries) {
@@ -334,14 +367,14 @@ function ensureScreenObserver() {
       var video = entry.target;
       var screen = video.closest('[data-screen]');
       if (!screen || screen.classList.contains('is-fallback')) return;
-      if (entry.isIntersecting && entry.intersectionRatio >= 0.45) {
+      if (entry.isIntersecting && entry.intersectionRatio >= 0.25) {
         var play = video.play();
-        if (play && play.catch) play.catch(function () {});
-      } else {
+        if (play && play.catch) play.catch(function () { showPlayControl(screen, video); });
+      } else if (!entry.isIntersecting) {
         video.pause();
       }
     });
-  }, { threshold: [0, 0.45, 0.75] });
+  }, { threshold: [0, 0.25, 0.6], rootMargin: '120px 0px' });
 }
 
 function bindScreen(screen) {
@@ -362,25 +395,13 @@ function bindScreen(screen) {
     fallback();
     return;
   }
-  if (source && !source.getAttribute('src')) source.src = src;
+  if (source && !source.getAttribute('src')) {
+    source.src = src;
+    try { video.load(); } catch (ignore) {}
+  }
   ensureScreenObserver();
   if (screenObserver) screenObserver.observe(video);
-  if (reduceMotion()) {
-    var playBtn = el('button', 'play-btn', 'Play');
-    playBtn.type = 'button';
-    playBtn.addEventListener('click', function () {
-      if (screen.classList.contains('is-fallback')) return;
-      if (video.paused) {
-        var pending = video.play();
-        if (pending && pending.catch) pending.catch(function () {});
-        playBtn.textContent = 'Pause';
-      } else {
-        video.pause();
-        playBtn.textContent = 'Play';
-      }
-    });
-    screen.appendChild(playBtn);
-  }
+  if (reduceMotion()) showPlayControl(screen, video);
 }
 
 function initScreens(root) {
@@ -414,7 +435,7 @@ function initSound() {
       button.textContent = 'Sound off';
       button.setAttribute('aria-pressed', 'true');
       var pending = video.play();
-      if (pending && pending.catch) pending.catch(function () {});
+      if (pending && pending.catch) pending.catch(function () { showPlayControl(screen, video); });
     }
   });
 }
@@ -709,15 +730,24 @@ function initAssessment() {
       answers.push(value);
       if (PILLAR_OF_Q[i] >= 0) scores[PILLAR_OF_Q[i]] += value;
     }
+    var nameInput = document.getElementById('report-name');
+    var nameValue = nameInput ? nameInput.value.trim() : '';
+    if (nameValue.length > 80) {
+      if (nameInput) nameInput.setAttribute('aria-invalid', 'true');
+      problems.push({ id: 'report-name', message: 'Keep the name to 80 characters.' });
+    } else if (nameInput) nameInput.removeAttribute('aria-invalid');
     var emailInput = document.getElementById('report-email');
     var email = emailInput.value.trim();
-    if (!emailOk(email)) {
+    if (!emailOk(email) || email.length > 254) {
       emailInput.setAttribute('aria-invalid', 'true');
       problems.push({ id: 'report-email', message: 'Email is required.' });
     } else emailInput.removeAttribute('aria-invalid');
     var delivery = form.querySelector('input[name="delivery"]:checked');
     var phone = document.getElementById('report-phone').value.trim();
-    if (delivery && delivery.value !== 'Email' && phone.replace(/\D/g, '').length < 7) {
+    if (phone.length > 32) {
+      document.getElementById('report-phone').setAttribute('aria-invalid', 'true');
+      problems.push({ id: 'report-phone', message: 'Keep the phone number shorter.' });
+    } else if (delivery && delivery.value !== 'Email' && phone.replace(/\D/g, '').length < 7) {
       document.getElementById('report-phone').setAttribute('aria-invalid', 'true');
       problems.push({ id: 'report-phone', message: 'Add a phone number for a text message.' });
     } else document.getElementById('report-phone').removeAttribute('aria-invalid');
@@ -725,6 +755,14 @@ function initAssessment() {
       showErrors(errors, problems);
       return;
     }
+    var now = Date.now();
+    var lastAt = 0;
+    try { lastAt = parseInt(sessionStorage.getItem('ss.assess.at') || '0', 10) || 0; } catch (ignore) {}
+    if (lastAt && now - lastAt < 20000) {
+      showErrors(errors, [{ id: 'send-report', message: 'Give it a moment, then send the report again.' }]);
+      return;
+    }
+    try { sessionStorage.setItem('ss.assess.at', String(now)); } catch (ignore) {}
     errors.hidden = true;
     var q2 = answers[1];
     var total = scores.reduce(function (sum, n) { return sum + n; }, 0);
@@ -847,9 +885,11 @@ function initAssessment() {
       if (result && result.ok) confirm.textContent = 'Your full report is on its way by the delivery you chose.';
       else confirm.textContent = 'Your map is on this page. Keep it, and start with the path above.';
     }
-    if (window.PortalAPI) {
+    var trap = document.getElementById('report-company');
+    var trapped = trap && String(trap.value || '').replace(/^\s+|\s+$/g, '').length > 0;
+    if (window.PortalAPI && !trapped) {
       window.PortalAPI.call('submitAssessment', payload).then(finish).catch(function () { finish(null); });
-    } else finish(null);
+    } else finish(trapped ? { ok: true } : null);
   });
 }
 
@@ -981,25 +1021,11 @@ function initPortal() {
 
   function loadDesk(pass, profile) {
     if (!window.PortalAPI || !pass) return;
-    Promise.all([
-      window.PortalAPI.call('getResources', pass),
-      window.PortalAPI.call('getDrops', pass),
-      window.PortalAPI.call('getLeaderboard', pass)
-    ]).then(function (results) {
-      var resources = results[0] || {};
-      var drops = results[1] || {};
-      var board = results[2] || {};
+    // Each panel renders the moment its own data lands — the desk never
+    // waits on the slowest call (Fin, 2026-11-19 speed fix).
+    window.PortalAPI.call('getResources', pass).then(function (resources) {
+      resources = resources || {};
       var resourceItems = resources.resources || resources.items || [];
-      var dropItems = drops.drops || drops.items || [];
-      var rows = board.board || board.rows || [];
-      var you = null;
-      rows.forEach(function (row) {
-        if (profile && row.username && row.username === profile.username) {
-          var named = rankByName(row.rankName || row.rank);
-          you = { username: row.username, rank: named ? named.name : (row.rankName || row.rank || '') };
-        }
-      });
-      renderAppPanel(dropItems);
       var learn = document.getElementById('panel-learn');
       if (learn) {
         learn.textContent = '';
@@ -1012,6 +1038,21 @@ function initPortal() {
           learn.appendChild(card);
         });
       }
+    }).catch(function () {});
+    window.PortalAPI.call('getDrops', pass).then(function (drops) {
+      drops = drops || {};
+      renderAppPanel(drops.drops || drops.items || []);
+    }).catch(function () {});
+    window.PortalAPI.call('getLeaderboard', pass).then(function (board) {
+      board = board || {};
+      var rows = board.board || board.rows || [];
+      var you = null;
+      rows.forEach(function (row) {
+        if (profile && row.username && row.username === profile.username) {
+          var named = rankByName(row.rankName || row.rank);
+          you = { username: row.username, rank: named ? named.name : (row.rankName || row.rank || '') };
+        }
+      });
       var ladder = document.getElementById('panel-ladder');
       if (ladder) {
         ladder.textContent = '';
@@ -1023,9 +1064,7 @@ function initPortal() {
         renderTable(tableHost, rows, profile && profile.username);
         ladder.appendChild(tableHost);
       }
-    }).catch(function (err) {
-      say(safeMsg(err && err.message, 'The desk is quiet. Sign in again in a moment.'));
-    });
+    }).catch(function () {});
   }
 
   var existing = readPass();
@@ -1035,13 +1074,20 @@ function initPortal() {
   function sendCode() {
     if (!window.PortalAPI) { say('The desk is not connected yet.'); return; }
     var email = emailInput.value.trim();
-    if (!emailOk(email)) {
+    if (!emailOk(email) || email.length > 254) {
       emailInput.setAttribute('aria-invalid', 'true');
       say('Enter a real email so the code has somewhere to go.');
       emailInput.focus();
       return;
     }
+    var sentAt = 0;
+    try { sentAt = parseInt(sessionStorage.getItem('ss.code.at') || '0', 10) || 0; } catch (ignore) {}
+    if (sentAt && Date.now() - sentAt < 20000) {
+      say('Give it a moment, then ask for a code again.');
+      return;
+    }
     emailInput.removeAttribute('aria-invalid');
+    try { sessionStorage.setItem('ss.code.at', String(Date.now())); } catch (ignore) {}
     sendButton.disabled = true;
     say('Sending.');
     window.PortalAPI.call('sendMyCode', email).then(function (result) {
@@ -1069,6 +1115,13 @@ function initPortal() {
       codeInput.focus();
       return;
     }
+    var checkedAt = 0;
+    try { checkedAt = parseInt(sessionStorage.getItem('ss.code.check') || '0', 10) || 0; } catch (ignore) {}
+    if (checkedAt && Date.now() - checkedAt < 8000) {
+      say('Give it a moment, then check the code again.');
+      return;
+    }
+    try { sessionStorage.setItem('ss.code.check', String(Date.now())); } catch (ignore) {}
     codeInput.removeAttribute('aria-invalid');
     confirmButton.disabled = true;
     say('Checking the code.');
@@ -1415,8 +1468,8 @@ function showRoom(pass, profile) {
     renderBigScreen(list[index]);
   }
   var news = [];
-  function apply(data) {
-    if (!data || !data.ok) { lock(); return; }
+  var screenSupported = true;
+  function applyScreen(data) {
     if (locked) locked.hidden = true;
     if (open) open.hidden = false;
     if (who) {
@@ -1431,15 +1484,19 @@ function showRoom(pass, profile) {
     renderWire(data.headlines || []);
     paint(news);
     renderFounders(data.videos || []);
-    renderReleases((data.drops || []).map(function (item) {
+  }
+  function applyFloor(posts) { renderFloor((posts || []).map(normalizePost)); }
+  function applyReleases(drops) {
+    renderReleases((drops || []).map(function (item) {
       return {
         title: item.title,
         when: item.when || [item.category, item.date].filter(Boolean).join(' · '),
         note: item.note || item.body
       };
     }));
-    renderFloor((data.posts || []).map(normalizePost));
-    var rows = data.board || [];
+  }
+  function applyLadder(rows) {
+    rows = rows || [];
     var you = null;
     var name = profile && profile.username;
     rows.forEach(function (row) {
@@ -1450,8 +1507,27 @@ function showRoom(pass, profile) {
     });
     renderRoomLadder({ rows: rows, you: you });
   }
+  function apply(data) {
+    if (!data || !data.ok) { lock(); return; }
+    applyScreen(data);
+    applyReleases(data.drops || []);
+    applyFloor(data.posts || []);
+    applyLadder(data.board || []);
+  }
+  function loadRoomExtras() {
+    window.PortalAPI.call('getBoard', pass).then(function (board) {
+      if (board && board.ok) applyFloor(board.posts || []);
+    }).catch(function () {});
+    window.PortalAPI.call('getDrops', pass).then(function (dropsRes) {
+      if (dropsRes && dropsRes.ok) applyReleases(dropsRes.drops || []);
+    }).catch(function () {});
+    window.PortalAPI.call('getLeaderboard', pass).then(function (leadRes) {
+      if (leadRes && leadRes.ok) applyLadder((leadRes.board || []).slice(0, 10));
+    }).catch(function () {});
+  }
   function roll() {
-    window.PortalAPI.call('getRoomData', pass).then(function (fresh) {
+    var fn = screenSupported ? 'getRoomScreen' : 'getRoomData';
+    window.PortalAPI.call(fn, pass).then(function (fresh) {
       if (fresh && fresh.ok) {
         if (typeof fresh.rotationSlot === 'number' && isFinite(fresh.rotationSlot)) roomSlot = fresh.rotationSlot;
         else roomSlot += 1;
@@ -1461,10 +1537,24 @@ function showRoom(pass, profile) {
       paint(news);
     }).catch(function () { roomSlot += 1; paint(news); });
   }
-  window.PortalAPI.call('getRoomData', pass).then(function (data) {
-    apply(data);
-    if (data && data.ok) scheduleRoll(roll);
-  }).catch(function () { lock(); });
+  function bootFull() {
+    window.PortalAPI.call('getRoomData', pass).then(function (data) {
+      apply(data);
+      if (data && data.ok) scheduleRoll(roll);
+    }).catch(function () { lock(); });
+  }
+  window.PortalAPI.call('getRoomScreen', pass).then(function (data) {
+    if (data && data.ok) {
+      applyScreen(data);
+      loadRoomExtras();
+      scheduleRoll(roll);
+    } else if (data && /Unknown function/.test(data.error || '')) {
+      screenSupported = false;
+      bootFull();
+    } else {
+      lock();
+    }
+  }).catch(function () { bootFull(); });
 
   var floorForm = document.getElementById('floor-form');
   if (floorForm && !floorForm.dataset.bound) {
