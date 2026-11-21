@@ -1118,6 +1118,10 @@ textarea { min-height: 120px; resize: vertical; }
   background: #050b14;
 }
 .clip-card figcaption { padding: 0.75rem 0.85rem 0.95rem; }
+.short-player { display: block; width: 100%; max-width: 300px; aspect-ratio: 16/9; height: auto; margin: 0.8rem auto 0; border: 1px solid var(--line); border-radius: 14px; background: #000; }
+.card-lift { margin-top: 1.5rem; }
+.anchor-logo { width: min(230px, 58vw); height: auto; border-radius: 18px; box-shadow: 0 18px 50px rgba(0,0,0,0.45); }
+.pillars-wide { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
 .clip-card h3 {
   font-family: var(--display);
   font-size: 1.05rem;
